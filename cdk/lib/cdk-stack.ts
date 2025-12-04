@@ -2,6 +2,9 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as path from 'path';
 
 export class VantageStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -34,6 +37,26 @@ export class VantageStack extends cdk.Stack {
       generateSecret: false, // Mobile apps typically don't use client secrets
     });
 
+    // Deal Parser Lambda
+    const dealParserLambda = new lambda.Function(this, 'DealParserFunction', {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../backend/lambda/deal_parser')),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        DEALS_TABLE_NAME: dealsTable.tableName,
+      },
+    });
+
+    // Permissions
+    dealsTable.grantWriteData(dealParserLambda);
+
+    // Bedrock Permission
+    dealParserLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'], // Scope this down in production to specific model ARNs
+    }));
+
     // Outputs
     new cdk.CfnOutput(this, 'DealsTableName', {
       value: dealsTable.tableName,
@@ -45,6 +68,10 @@ export class VantageStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'UserPoolClientId', {
       value: userPoolClient.userPoolClientId,
+    });
+
+    new cdk.CfnOutput(this, 'DealParserFunctionName', {
+      value: dealParserLambda.functionName,
     });
   }
 }
